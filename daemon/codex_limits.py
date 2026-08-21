@@ -1,0 +1,204 @@
+"""Fetch Codex 5h/7d usage via the local Codex App Server."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import shutil
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+
+class AppServerError(RuntimeError):
+    pass
+
+
+@dataclass
+class JsonRpcClient:
+    codex_bin: str = "codex"
+    timeout_sec: float = 15.0
+    proc: asyncio.subprocess.Process | None = None
+    next_id: int = 1
+    stderr_chunks: list[str] = field(default_factory=list)
+    stderr_task: asyncio.Task[None] | None = None
+
+    async def __aenter__(self) -> "JsonRpcClient":
+        if shutil.which(self.codex_bin) is None:
+            raise AppServerError(f"Cannot find `{self.codex_bin}` in PATH.")
+        self.proc = await asyncio.create_subprocess_exec(
+            self.codex_bin,
+            "app-server",
+            "--listen",
+            "stdio://",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        self.stderr_task = asyncio.create_task(self._read_stderr())
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        if self.stderr_task:
+            self.stderr_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.stderr_task
+        if self.proc and self.proc.returncode is None:
+            self.proc.terminate()
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self.proc.wait(), timeout=2)
+            if self.proc.returncode is None:
+                self.proc.kill()
+                await self.proc.wait()
+
+    async def _read_stderr(self) -> None:
+        assert self.proc and self.proc.stderr
+        while True:
+            chunk = await self.proc.stderr.readline()
+            if not chunk:
+                break
+            text = chunk.decode("utf-8", errors="replace").rstrip()
+            if text:
+                self.stderr_chunks.append(text)
+                del self.stderr_chunks[:-20]
+
+    async def initialize(self) -> dict[str, Any]:
+        result = await self.request(
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "dualmeter",
+                    "title": "DualMeter",
+                    "version": "1.0.0",
+                },
+                "capabilities": {
+                    "experimentalApi": True,
+                    "requestAttestation": False,
+                    "optOutNotificationMethods": [],
+                },
+            },
+        )
+        await self.notify("initialized")
+        return result
+
+    async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        await self._send({"method": method, **({"params": params} if params else {})})
+
+    async def request(
+        self, method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        request_id = self.next_id
+        self.next_id += 1
+        message: dict[str, Any] = {"method": method, "id": request_id}
+        if params is not None:
+            message["params"] = params
+        await self._send(message)
+
+        async def wait_for_response() -> dict[str, Any]:
+            while True:
+                incoming = await self._read_message()
+                if incoming.get("id") != request_id:
+                    continue
+                if "error" in incoming:
+                    raise AppServerError(
+                        f"{method} failed: {json.dumps(incoming['error'], ensure_ascii=False)}"
+                    )
+                result = incoming.get("result")
+                return result if isinstance(result, dict) else {}
+
+        return await asyncio.wait_for(wait_for_response(), timeout=self.timeout_sec)
+
+    async def _send(self, message: dict[str, Any]) -> None:
+        assert self.proc and self.proc.stdin
+        payload = json.dumps(message, separators=(",", ":")).encode("utf-8") + b"\n"
+        self.proc.stdin.write(payload)
+        await self.proc.stdin.drain()
+
+    async def _read_message(self) -> dict[str, Any]:
+        assert self.proc and self.proc.stdout
+        line = await self.proc.stdout.readline()
+        if not line:
+            stderr = "\n".join(self.stderr_chunks)
+            suffix = f"\nApp server stderr:\n{stderr}" if stderr else ""
+            raise AppServerError(f"Codex app-server exited before replying.{suffix}")
+        return json.loads(line)
+
+
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+def _windows_from_rate_limits(response: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    snapshots: list[dict[str, Any]] = []
+    by_id = response.get("rateLimitsByLimitId")
+    if isinstance(by_id, dict):
+        snap = by_id.get("codex")
+        if isinstance(snap, dict):
+            snapshots.append(snap)
+    single = response.get("rateLimits")
+    if isinstance(single, dict) and not snapshots:
+        snapshots.append(single)
+
+    out: dict[int, dict[str, Any]] = {}
+    for snapshot in snapshots:
+        for bucket in ("primary", "secondary"):
+            window = snapshot.get(bucket)
+            if not isinstance(window, dict):
+                continue
+            duration = _as_int(window.get("windowDurationMins"))
+            if duration is None:
+                continue
+            used_raw = window.get("usedPercent")
+            used = None
+            if isinstance(used_raw, (int, float)):
+                used = max(0.0, min(100.0, float(used_raw)))
+            out[duration] = {
+                "used": used,
+                "resets_at": _as_int(window.get("resetsAt")),
+            }
+    return out
+
+
+def _reset_mins(resets_at: int | None, now: float) -> int:
+    if resets_at is None:
+        return -1
+    mins = (resets_at - now) / 60.0
+    return int(round(mins)) if mins > 0 else 0
+
+
+async def poll_codex_payload(codex_bin: str = "codex") -> dict[str, Any] | None:
+    """Return DualMeter Codex fields, or None if Codex is unavailable."""
+    try:
+        async with JsonRpcClient(codex_bin) as client:
+            await client.initialize()
+            await client.request("account/read", {"refreshToken": False})
+            rate_limits = await client.request("account/rateLimits/read")
+    except (AppServerError, asyncio.TimeoutError, json.JSONDecodeError, OSError):
+        return None
+
+    windows = _windows_from_rate_limits(rate_limits)
+    now = time.time()
+    h5 = windows.get(300)
+    d7 = windows.get(7 * 24 * 60)
+    if h5 is None and d7 is None:
+        unknown = list(windows.values())
+        if unknown:
+            h5 = unknown[0]
+        if len(unknown) > 1:
+            d7 = unknown[1]
+    if h5 is None and d7 is None:
+        return {"xok": False}
+
+    payload: dict[str, Any] = {"xok": True}
+    if h5 and h5.get("used") is not None:
+        payload["xs"] = int(round(h5["used"]))
+        payload["xsr"] = _reset_mins(h5.get("resets_at"), now)
+    if d7 and d7.get("used") is not None:
+        payload["xw"] = int(round(d7["used"]))
+        payload["xwr"] = _reset_mins(d7.get("resets_at"), now)
+    return payload
