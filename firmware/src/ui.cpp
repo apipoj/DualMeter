@@ -5,6 +5,7 @@
 #include <time.h>
 #include "logo.h"
 #include "clawd_still.h"
+#include "codex_icon.h"
 #include "icons.h"
 #include "hal/board_caps.h"
 
@@ -216,6 +217,7 @@ static lv_obj_t* pair_group;    // pairing hint — shown when disconnected
 struct ProviderCard {
     lv_obj_t* panel;
     lv_obj_t* provider;
+    lv_obj_t* icon;
     lv_obj_t* period[2];
     lv_obj_t* pct[2];
     lv_obj_t* bar[2];
@@ -223,6 +225,7 @@ struct ProviderCard {
 };
 static ProviderCard claude_card = {};
 static ProviderCard codex_card = {};
+static lv_image_dsc_t codex_icon_dsc = {};
 static UsageData last_usage = {};
 static lv_obj_t* lbl_anim;      // status line: connection state + whimsical idle
 
@@ -380,10 +383,24 @@ static void init_battery_icons(void) {
     init_icon_dsc_rgb565a8(&battery_dscs[4], ICON_BATTERY_CHARGING_W, ICON_BATTERY_CHARGING_H, icon_battery_charging_data);
 }
 
+static void init_codex_icon(void) {
+    if (L.small_icons) {
+        init_icon_dsc_rgb565a8(&codex_icon_dsc, CODEX_ICON_SMALL_W,
+                               CODEX_ICON_SMALL_H, codex_icon_small_data);
+    } else if (L.scr_w < 400) {
+        init_icon_dsc_rgb565a8(&codex_icon_dsc, CODEX_ICON_COMPACT_W,
+                               CODEX_ICON_COMPACT_H, codex_icon_compact_data);
+    } else {
+        init_icon_dsc_rgb565a8(&codex_icon_dsc, CODEX_ICON_LARGE_W,
+                               CODEX_ICON_LARGE_H, codex_icon_large_data);
+    }
+}
+
 // ======== Usage Screen ========
 
 static void build_provider_card(lv_obj_t* parent, int y, const char* name,
-                                lv_color_t accent, ProviderCard* card) {
+                                lv_color_t accent, ProviderCard* card,
+                                const lv_image_dsc_t* icon = nullptr) {
     card->panel = make_panel(parent, L.margin, y, L.content_w, L.usage_card_h);
 
     card->provider = lv_label_create(card->panel);
@@ -391,6 +408,14 @@ static void build_provider_card(lv_obj_t* parent, int y, const char* name,
     lv_obj_set_style_text_font(card->provider, L.provider_font, 0);
     lv_obj_set_style_text_color(card->provider, accent, 0);
     lv_obj_set_pos(card->provider, 0, 0);
+
+    card->icon = nullptr;
+    if (icon) {
+        card->icon = lv_image_create(card->panel);
+        lv_image_set_src(card->icon, icon);
+        lv_obj_align_to(card->icon, card->provider, LV_ALIGN_OUT_RIGHT_MID,
+                        L.small_icons ? 3 : 5, 0);
+    }
 
     const int inner_w = L.content_w - 2 * L.panel_pad_x;
     const int col_w = (inner_w - L.usage_col_gap) / 2;
@@ -508,10 +533,11 @@ static void init_usage_screen(lv_obj_t* scr) {
     lv_obj_clear_flag(usage_group, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(usage_group, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    build_provider_card(usage_group, L.content_y, "Claude", COL_ACCENT, &claude_card);
+    build_provider_card(usage_group, L.content_y, "Claude", COL_ACCENT,
+                        &claude_card);
     build_provider_card(usage_group,
                         L.content_y + L.usage_card_h + L.usage_card_gap,
-                        "Codex", COL_CODEX, &codex_card);
+                        "Codex", COL_CODEX, &codex_card, &codex_icon_dsc);
 
     build_pair_group(usage_container);
     build_idle_group(usage_container);
@@ -539,6 +565,7 @@ void ui_init(void) {
     else               init_icon_dsc_rgb565a8(&logo_dsc, CLAWD_STILL_W, CLAWD_STILL_H, clawd_still_data);
 #endif
     init_battery_icons();
+    init_codex_icon();
 
     init_usage_screen(scr);
     splash_init(scr);
