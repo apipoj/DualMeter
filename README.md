@@ -6,10 +6,10 @@ Firmware is based on [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter)
 
 ## What you see
 
-- **Claude** page: 5-hour and 7-day utilization (same numbers as Claude Code)
-- **Codex** page: 5-hour and 7-day utilization (same numbers as Codex)
-- Tap the screen: Claude → Codex → splash → Claude
-- Short press **PWR**: switch Claude / Codex
+- One **Usage** dashboard with Claude and Codex visible together
+- 5-hour and 7-day utilization, reset time, and progress bar for each provider
+- Tap the screen: usage dashboard ↔ splash
+- Short press **PWR** on the usage dashboard: cycle brightness
 - Hold **PWR** ~3s then release: Bluetooth pairing mode
 
 ## Hardware
@@ -36,11 +36,15 @@ export PATH="$PWD/.venv/bin:$PATH"
 
 Then pair in **System Settings → Bluetooth → DualMeter**. The daemon looks for that name.
 
-Serial demo without BLE:
+Serial commands without BLE (enter them in a 115200-baud monitor):
 
+```text
+demo  # show sample Claude + Codex usage
+pair  # clear Bluetooth bonds and advertise for a new host
 ```
-demo
-```
+
+Use `pair` over USB when the PWR hold gesture is difficult to time; it clears
+only the saved Bluetooth owner/bonds and leaves other settings intact.
 
 ## Payload
 

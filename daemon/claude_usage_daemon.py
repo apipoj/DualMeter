@@ -146,6 +146,10 @@ def _read_token_keychain() -> str | None:
             timeout=10,
         )
     except subprocess.CalledProcessError as e:
+        # ``security`` uses 44 when the item does not exist. That is a normal
+        # fallback-to-file case, not an error worth repeating every poll.
+        if e.returncode == 44:
+            return None
         log(f"Keychain read failed (rc={e.returncode}): {e.stderr.strip()}")
         return None
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -181,21 +185,23 @@ def read_config_dirs() -> list[Path]:
 def read_token_for(config_dir: Path) -> str | None:
     """Read the OAuth token for one config dir.
 
-    Linux: each dir keeps its own ``<dir>/.credentials.json``. macOS: the default
-    install stores the token in Keychain with no file, so for the default dir we
-    fall back to Keychain when no file is present — preserving existing
-    single-plan macOS behavior. Additional macOS dirs are read from their files;
-    a work plan whose token lives only in the single Keychain entry can't be told
-    apart there (documented follow-up).
+    Linux: each dir keeps its own ``<dir>/.credentials.json``. macOS: Claude Code
+    owns and refreshes the default login in Keychain, so that live credential must
+    win over a stale compatibility file left in ``~/.claude``. If Keychain is
+    unavailable we still fall back to the file. Additional macOS dirs are read
+    from their files; a work plan whose token lives only in the single Keychain
+    entry can't be told apart there (documented follow-up).
     """
+    if sys.platform == "darwin" and config_dir == DEFAULT_CONFIG_DIR:
+        token = _read_token_keychain()
+        if token:
+            return token
     cred = config_dir / ".credentials.json"
     try:
         if cred.exists():
             return _extract_access_token(cred.read_text())
     except OSError as e:
         log(f"Error reading credentials in {config_dir}: {e}")
-    if sys.platform == "darwin" and config_dir == DEFAULT_CONFIG_DIR:
-        return _read_token_keychain()
     return None
 
 
