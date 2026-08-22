@@ -62,12 +62,40 @@ def test_token_for_default_dir_falls_back_to_keychain_on_macos(tmp_path, monkeyp
         assert read_token_for(tmp_path) == "TOK_KEYCHAIN"
 
 
-def test_token_for_file_wins_over_keychain(tmp_path, monkeypatch):
+def test_token_for_default_dir_prefers_keychain_over_stale_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "DEFAULT_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(mod.sys, "platform", "darwin")
+    (tmp_path / ".credentials.json").write_text('{"accessToken":"TOK_STALE_FILE"}')
+    with patch.object(mod, "_read_token_keychain", return_value="TOK_LIVE_KEYCHAIN"):
+        assert read_token_for(tmp_path) == "TOK_LIVE_KEYCHAIN"
+
+
+def test_token_for_default_dir_falls_back_to_file_when_keychain_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "DEFAULT_CONFIG_DIR", tmp_path)
     monkeypatch.setattr(mod.sys, "platform", "darwin")
     (tmp_path / ".credentials.json").write_text('{"accessToken":"TOK_FILE"}')
-    with patch.object(mod, "_read_token_keychain", return_value="TOK_KEYCHAIN"):
+    with patch.object(mod, "_read_token_keychain", return_value=None):
         assert read_token_for(tmp_path) == "TOK_FILE"
+
+
+def test_token_for_non_default_macos_dir_uses_file_without_keychain(tmp_path, monkeypatch):
+    default_dir = tmp_path / "default"
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    (other_dir / ".credentials.json").write_text('{"accessToken":"TOK_OTHER"}')
+    monkeypatch.setattr(mod, "DEFAULT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(mod.sys, "platform", "darwin")
+    with patch.object(mod, "_read_token_keychain") as keychain:
+        assert read_token_for(other_dir) == "TOK_OTHER"
+        keychain.assert_not_called()
+
+
+def test_keychain_missing_item_is_quiet(monkeypatch):
+    missing = mod.subprocess.CalledProcessError(44, ["security"], stderr="not found")
+    monkeypatch.setattr(mod.subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(missing))
+    with patch.object(mod, "log") as log:
+        assert mod._read_token_keychain() is None
+        log.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

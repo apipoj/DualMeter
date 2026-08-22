@@ -28,10 +28,8 @@ static bool     pending = false;      // a state is queued for main's next poll
 static uint32_t delivered_ms = 0;
 
 static const char* FALLBACK[] = {
-    "{\"name\":\"fresh\",\"s\":3.0,\"sr\":295,\"w\":12.0,\"wr\":9000,\"st\":\"allowed\",\"ok\":true}",
-    "{\"name\":\"mid\",\"s\":48.0,\"sr\":150,\"w\":35.0,\"wr\":7200,\"st\":\"allowed\",\"ok\":true}",
-    "{\"name\":\"high\",\"s\":92.0,\"sr\":30,\"w\":71.0,\"wr\":4600,\"st\":\"allowed\",\"ok\":true}",
-    "{\"name\":\"reset+chime\",\"hold_ms\":4000,\"s\":2.0,\"sr\":298,\"w\":72.0,\"wr\":4500,\"st\":\"allowed\",\"c\":true,\"ok\":true}",
+    "{\"name\":\"both providers\",\"s\":42.0,\"sr\":180,\"w\":33.0,\"wr\":7900,\"ok\":true,\"xs\":27.0,\"xsr\":110,\"xw\":41.0,\"xwr\":5400,\"xok\":true}",
+    "{\"name\":\"mixed pressure\",\"s\":78.0,\"sr\":75,\"w\":55.0,\"wr\":6400,\"ok\":true,\"xs\":91.0,\"xsr\":19,\"xw\":62.0,\"xwr\":4200,\"xok\":true}",
 };
 
 static void add_state(const char* line) {

@@ -181,7 +181,10 @@ static void check_serial_cmd() {
             cmd_buf[cmd_pos] = '\0';
             if (strcmp(cmd_buf, "screenshot") == 0) send_screenshot();
             else if (strcmp(cmd_buf, "buzz") == 0)  sound_hal_play_reset();
-            else if (strcmp(cmd_buf, "demo") == 0) {
+            else if (strcmp(cmd_buf, "pair") == 0) {
+                Serial.println("Pair: USB command — clearing bonds, advertising");
+                ble_clear_bonds();
+            } else if (strcmp(cmd_buf, "demo") == 0) {
                 parse_json("{\"s\":42,\"sr\":73,\"w\":18,\"wr\":3200,\"st\":\"allowed\",\"ok\":true,"
                            "\"xs\":27,\"xsr\":110,\"xw\":41,\"xwr\":5400,\"xok\":true}", &usage);
                 ui_update(&usage);
@@ -365,7 +368,7 @@ void loop() {
                 // On splash: cycle animations. On the usage view: cycle
                 // screen brightness (single non-splash view, no more screens).
                 if (ui_get_current_screen() == SCREEN_SPLASH) splash_next();
-                else                                          ui_cycle_provider();
+                else                                          brightness_cycle();
             }
         }
 
