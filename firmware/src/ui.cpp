@@ -5,6 +5,7 @@
 #include <time.h>
 #include "logo.h"
 #include "clawd_still.h"
+#include "clawd_icon.h"
 #include "codex_icon.h"
 #include "icons.h"
 #include "hal/board_caps.h"
@@ -86,7 +87,7 @@ static void compute_layout(const BoardCaps& c) {
     L.bar_h = 10;
     L.panel_pad_x = 16;
     L.panel_pad_y = 10;
-    L.title_font   = &font_tiempos_56;
+    L.title_font   = &font_tiempos_34;
     L.provider_font = &font_styrene_20;
     L.period_font  = &font_styrene_14;
     L.pct_font     = &font_styrene_48;
@@ -120,6 +121,7 @@ static void compute_layout(const BoardCaps& c) {
         L.bt_device_font   = &font_styrene_28;
         L.bt_credit_1_font = &font_styrene_24;
         L.bt_credit_2_font = &font_styrene_20;
+        if (c.width < 440) L.title_nudge = 34;
     } else if (c.height >= 300) {
         // Compact layout — tuned for 368x448 (AMOLED-1.8).
         L.content_y = 82;
@@ -132,6 +134,7 @@ static void compute_layout(const BoardCaps& c) {
         L.usage_reset_y = 80;
         L.bar_h = 8;
         L.panel_pad_x = 14;
+        L.title_font   = &font_tiempos_34;
         L.provider_font = &font_styrene_16;
         L.period_font  = &font_styrene_12;
         L.pct_font     = &font_styrene_28;
@@ -160,7 +163,9 @@ static void compute_layout(const BoardCaps& c) {
         L.bar_h = 5;
         L.panel_pad_x = 10;
         L.panel_pad_y = 4;
-        L.title_font   = &font_tiempos_34;
+        // The paired mascots leave a compact center lane. Styrene keeps the
+        // full 12-hour clock readable without touching either corner cluster.
+        L.title_font   = &font_styrene_16;
         L.provider_font = &font_styrene_12;
         L.period_font  = &font_styrene_12;
         L.pct_font     = &font_styrene_20;
@@ -170,7 +175,7 @@ static void compute_layout(const BoardCaps& c) {
         // against the bottom edge it reads as unevenly spaced.
         L.anim_y = -10;
         L.small_icons = true;
-        L.title_nudge = 8;
+        L.title_nudge = 33;
         L.logo_y = 2;
         L.batt_y = 10;
         L.batt_w = ICON_BATTERY_SMALL_W;
@@ -225,13 +230,16 @@ struct ProviderCard {
 };
 static ProviderCard claude_card = {};
 static ProviderCard codex_card = {};
+static lv_image_dsc_t clawd_icon_dsc = {};
 static lv_image_dsc_t codex_icon_dsc = {};
+static lv_image_dsc_t codex_header_dsc = {};
 static UsageData last_usage = {};
 static lv_obj_t* lbl_anim;      // status line: connection state + whimsical idle
 
 // ---- Battery indicator (shared, on top) ----
 static lv_obj_t* battery_img;
 static lv_obj_t* logo_img;
+static lv_obj_t* codex_logo_img;
 static lv_image_dsc_t battery_dscs[5];  // empty, low, medium, full, charging
 
 // ---- Live-data freshness → which usage sub-view to show ----
@@ -257,7 +265,9 @@ static uint8_t anim_spinner_idx = 0;
 static uint8_t anim_phase = 0;
 static uint8_t anim_msg_idx = 0;
 static uint32_t anim_msg_start = 0;
+static uint8_t mascot_bob_phase = 0xFF;
 #define ANIM_MSG_MS     4000
+#define MASCOT_BOB_MS   300
 
 static const char* const spinner_frames[] = {
     "\xC2\xB7", "\xE2\x9C\xBB", "\xE2\x9C\xBD",
@@ -383,16 +393,31 @@ static void init_battery_icons(void) {
     init_icon_dsc_rgb565a8(&battery_dscs[4], ICON_BATTERY_CHARGING_W, ICON_BATTERY_CHARGING_H, icon_battery_charging_data);
 }
 
-static void init_codex_icon(void) {
+static void init_mascot_icons(void) {
     if (L.small_icons) {
+        init_icon_dsc_rgb565a8(&clawd_icon_dsc, CLAWD_ICON_SMALL_W,
+                               CLAWD_ICON_SMALL_H, clawd_icon_small_data);
         init_icon_dsc_rgb565a8(&codex_icon_dsc, CODEX_ICON_SMALL_W,
                                CODEX_ICON_SMALL_H, codex_icon_small_data);
+        init_icon_dsc_rgb565a8(&codex_header_dsc, CODEX_ICON_HEADER_SMALL_W,
+                               CODEX_ICON_HEADER_SMALL_H,
+                               codex_icon_header_small_data);
     } else if (L.scr_w < 400) {
+        init_icon_dsc_rgb565a8(&clawd_icon_dsc, CLAWD_ICON_COMPACT_W,
+                               CLAWD_ICON_COMPACT_H, clawd_icon_compact_data);
         init_icon_dsc_rgb565a8(&codex_icon_dsc, CODEX_ICON_COMPACT_W,
                                CODEX_ICON_COMPACT_H, codex_icon_compact_data);
+        init_icon_dsc_rgb565a8(&codex_header_dsc, CODEX_ICON_HEADER_COMPACT_W,
+                               CODEX_ICON_HEADER_COMPACT_H,
+                               codex_icon_header_compact_data);
     } else {
+        init_icon_dsc_rgb565a8(&clawd_icon_dsc, CLAWD_ICON_LARGE_W,
+                               CLAWD_ICON_LARGE_H, clawd_icon_large_data);
         init_icon_dsc_rgb565a8(&codex_icon_dsc, CODEX_ICON_LARGE_W,
                                CODEX_ICON_LARGE_H, codex_icon_large_data);
+        init_icon_dsc_rgb565a8(&codex_header_dsc, CODEX_ICON_HEADER_LARGE_W,
+                               CODEX_ICON_HEADER_LARGE_H,
+                               codex_icon_header_large_data);
     }
 }
 
@@ -534,7 +559,7 @@ static void init_usage_screen(lv_obj_t* scr) {
     lv_obj_add_flag(usage_group, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     build_provider_card(usage_group, L.content_y, "Claude", COL_ACCENT,
-                        &claude_card);
+                        &claude_card, &clawd_icon_dsc);
     build_provider_card(usage_group,
                         L.content_y + L.usage_card_h + L.usage_card_gap,
                         "Codex", COL_CODEX, &codex_card, &codex_icon_dsc);
@@ -561,11 +586,19 @@ void ui_init(void) {
 
 #ifndef BOARD_HAS_PSRAM
     // Static corner mascot (see clawd_still.h) — the animated one needs PSRAM.
-    if (L.small_icons) init_icon_dsc_rgb565a8(&logo_dsc, CLAWD_STILL_SMALL_W, CLAWD_STILL_SMALL_H, clawd_still_small_data);
-    else               init_icon_dsc_rgb565a8(&logo_dsc, CLAWD_STILL_W, CLAWD_STILL_H, clawd_still_data);
+    if (L.small_icons) {
+        init_icon_dsc_rgb565a8(&logo_dsc, CLAWD_ICON_LARGE_W,
+                               CLAWD_ICON_LARGE_H, clawd_icon_large_data);
+    } else if (L.scr_w < 400) {
+        init_icon_dsc_rgb565a8(&logo_dsc, CLAWD_STILL_SMALL_W,
+                               CLAWD_STILL_SMALL_H, clawd_still_small_data);
+    } else {
+        init_icon_dsc_rgb565a8(&logo_dsc, CLAWD_STILL_W, CLAWD_STILL_H,
+                               clawd_still_data);
+    }
 #endif
     init_battery_icons();
-    init_codex_icon();
+    init_mascot_icons();
 
     init_usage_screen(scr);
     splash_init(scr);
@@ -577,17 +610,39 @@ void ui_init(void) {
     // Corner mascot in the old logo slot. The still Clawd is shorter than the
     // 80/40 px slot the spark logo used; center it vertically in that slot.
     {
-        const int slot  = L.small_icons ? LOGO_SMALL_HEIGHT : LOGO_HEIGHT;
-        const int art_h = L.small_icons ? CLAWD_STILL_SMALL_H : CLAWD_STILL_H;
-        const int top   = L.logo_y + (slot - art_h) / 2;
+        const int slot = L.small_icons ? LOGO_SMALL_HEIGHT : LOGO_HEIGHT;
+        const int art_w = L.small_icons ? CLAWD_ICON_LARGE_W
+                          : L.scr_w < 400 ? CLAWD_STILL_SMALL_W
+                                        : CLAWD_STILL_W;
+        const int art_h = L.small_icons ? CLAWD_ICON_LARGE_H
+                          : L.scr_w < 400 ? CLAWD_STILL_SMALL_H
+                                        : CLAWD_STILL_H;
+        const int top = L.logo_y + (slot - art_h) / 2;
+        int clawd_footprint_w = art_w;
+        int mascot_feet_y = top + art_h;
 #ifdef BOARD_HAS_PSRAM
-        // Animated: idles, does acts, and takes walk-off/lurk trips.
-        splash_mascot_create(scr, L.margin, top + art_h, L.small_icons ? 2 : 3);
+        // Animated: idles, does acts, and takes walk-off/lurk trips. The
+        // widest in-slot act (pointing) is 28 cells; keep the robot clear.
+        const int mascot_cell = (L.small_icons || L.scr_w < 400) ? 2 : 3;
+        clawd_footprint_w = 28 * mascot_cell;
+        // The 240px header is exactly one 21-cell act tall at cell=2.
+        if (L.small_icons) mascot_feet_y = L.content_y - 1;
+        splash_mascot_create(scr, L.margin, mascot_feet_y, mascot_cell);
 #else
         logo_img = lv_image_create(scr);
         lv_image_set_src(logo_img, &logo_dsc);
         lv_obj_set_pos(logo_img, L.margin, top);
 #endif
+
+        // Compensate for the transparent bottom padding so the visible
+        // silhouettes, rather than their image boxes, share one baseline.
+        const int robot_top = mascot_feet_y - codex_header_dsc.header.h
+                              + (L.small_icons ? 2 : 3);
+        codex_logo_img = lv_image_create(scr);
+        lv_image_set_src(codex_logo_img, &codex_header_dsc);
+        lv_obj_set_pos(codex_logo_img,
+                       L.margin + clawd_footprint_w + (L.small_icons ? 2 : 6),
+                       robot_top);
     }
 
     battery_img = lv_image_create(scr);
@@ -734,12 +789,26 @@ static void update_view_state(void) {
                       LV_OBJ_FLAG_HIDDEN);
 }
 
+static void tick_header_mascots(uint32_t now) {
+    static const int8_t bob_y[4] = {0, -1, -2, -1};
+    const uint8_t phase = (now / MASCOT_BOB_MS) & 3;
+    if (phase == mascot_bob_phase) return;
+    mascot_bob_phase = phase;
+
+    // C6/non-PSRAM boards use the static Clawd, so both mascots can bob in
+    // opposite phases without allocating or re-rendering image buffers.
+    if (logo_img) lv_obj_set_style_translate_y(logo_img, bob_y[phase], 0);
+    if (codex_logo_img)
+        lv_obj_set_style_translate_y(codex_logo_img, bob_y[(phase + 2) & 3], 0);
+}
+
 void ui_tick_anim(void) {
     if (current_screen != SCREEN_USAGE) return;
     update_view_state();
     if (view_state == 1) splash_mini_tick();   // animate the sleeping creature on the idle screen
 
     uint32_t now = lv_tick_get();
+    tick_header_mascots(now);
 
     // Title clock: once the daemon has sent wall-clock time, replace "Usage" with
     // the live time, advanced locally so it ticks every minute between payloads.
@@ -823,6 +892,10 @@ void ui_show_screen(screen_t screen) {
     if (logo_img) {
         if (screen == SCREEN_SPLASH) lv_obj_add_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
         else                          lv_obj_clear_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (codex_logo_img) {
+        if (screen == SCREEN_SPLASH) lv_obj_add_flag(codex_logo_img, LV_OBJ_FLAG_HIDDEN);
+        else                          lv_obj_clear_flag(codex_logo_img, LV_OBJ_FLAG_HIDDEN);
     }
 
     if (screen != SCREEN_SPLASH) prev_non_splash_screen = screen;
