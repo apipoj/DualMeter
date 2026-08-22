@@ -6,9 +6,9 @@ Firmware is based on [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter)
 
 ## What you see
 
-- One **Usage** dashboard with Claude and Codex visible together
+- One **Usage** dashboard with Claude and Codex visible together, plus focused Claude-only and Codex-only pages
 - 5-hour and 7-day utilization, reset time, and progress bar for each provider
-- Tap the screen: usage dashboard ↔ splash
+- Tap the live dashboard: All → Claude → Codex → splash; unavailable provider pages are skipped
 - Short press **PWR** on the usage dashboard: cycle brightness
 - Hold **PWR** ~3s then release: Bluetooth pairing mode
 

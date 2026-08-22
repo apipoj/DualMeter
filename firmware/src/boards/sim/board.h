@@ -4,7 +4,7 @@
 // 480×480 AMOLED so shared code (main.cpp, ui.cpp, splash.cpp) can be
 // developed without hardware. No pins here, just geometry and the key map.
 //
-//   mouse / left-drag    touch (tap toggles splash <-> usage)
+//   mouse / left-drag    touch (tap cycles splash/all/available providers)
 //   space                play/pause scenario playback
 //   left / right         step one scenario state (pauses playback)
 //   1..9                 jump to scenario state N (pauses playback)
@@ -23,7 +23,8 @@
 //
 // Headless / CI: SDL_VIDEODRIVER=dummy SIM_AUTOSHOT_MS=<ms> saves a
 // screenshot (SIM_AUTOSHOT_PATH, default sim-autoshot.bmp) after <ms> and
-// exits.
+// exits. SIM_AUTOTAP_MS=300,700,... injects center-screen taps through the
+// normal touch HAL before the shot.
 
 #define BOARD_NAME  "Simulator 480x480"
 #define LCD_WIDTH   480
