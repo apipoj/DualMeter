@@ -8,6 +8,7 @@
 #include "clawd_icon.h"
 #include "codex_icon.h"
 #include "icons.h"
+#include "usage_pages.h"
 #include "hal/board_caps.h"
 
 // Custom fonts (scaled for 314 PPI, ~1.9x from original 165 PPI)
@@ -221,6 +222,8 @@ static uint32_t clock_base_ms = 0;
 static int      clock_fmt = 24;   // 12 or 24, set from the daemon payload
 static int      clock_last_min = -1;   // last rendered minute; avoids redrawing the title every tick
 static lv_obj_t* usage_group;   // the two usage panels — shown when connected
+static lv_obj_t* page_indicator;
+static lv_obj_t* page_dots[3];
 static lv_obj_t* pair_group;    // pairing hint — shown when disconnected
 struct ProviderCard {
     lv_obj_t* panel;
@@ -238,11 +241,16 @@ static lv_image_dsc_t codex_icon_dsc = {};
 static lv_image_dsc_t codex_header_dsc = {};
 static UsageData last_usage = {};
 static lv_obj_t* lbl_anim;      // status line: connection state + whimsical idle
+static usage_pages::Page usage_page = usage_pages::Page::All;
 
 // ---- Battery indicator (shared, on top) ----
 static lv_obj_t* battery_img;
 static lv_obj_t* logo_img;
 static lv_obj_t* codex_logo_img;
+static lv_obj_t* clawd_mascot_img;
+static int16_t logo_all_y = 0;
+static int16_t codex_logo_all_x = 0;
+static int16_t codex_logo_all_y = 0;
 static lv_image_dsc_t battery_dscs[5];  // empty, low, medium, full, charging
 
 // ---- Live-data freshness → which usage sub-view to show ----
@@ -567,6 +575,29 @@ static void init_usage_screen(lv_obj_t* scr) {
                         L.content_y + L.usage_card_h + L.usage_card_gap,
                         "Codex", COL_CODEX, &codex_card, &codex_icon_dsc);
 
+    page_indicator = lv_obj_create(usage_group);
+    lv_obj_set_size(page_indicator, L.small_icons ? 34 : 46,
+                    L.small_icons ? 6 : 8);
+    lv_obj_align(page_indicator, LV_ALIGN_BOTTOM_MID, 0,
+                 L.anim_y - L.anim_font->line_height - (L.small_icons ? 8 : 12));
+    lv_obj_set_style_bg_opa(page_indicator, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(page_indicator, 0, 0);
+    lv_obj_set_style_pad_all(page_indicator, 0, 0);
+    lv_obj_clear_flag(page_indicator, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(page_indicator, LV_OBJ_FLAG_EVENT_BUBBLE);
+    const int16_t dot = L.small_icons ? 4 : 6;
+    const int16_t dot_gap = L.small_icons ? 7 : 10;
+    for (int i = 0; i < 3; ++i) {
+        page_dots[i] = lv_obj_create(page_indicator);
+        lv_obj_set_size(page_dots[i], dot, dot);
+        lv_obj_set_pos(page_dots[i], i * (dot + dot_gap), 0);
+        lv_obj_set_style_radius(page_dots[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_width(page_dots[i], 0, 0);
+        lv_obj_set_style_pad_all(page_dots[i], 0, 0);
+        lv_obj_clear_flag(page_dots[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(page_dots[i], LV_OBJ_FLAG_EVENT_BUBBLE);
+    }
+
     build_pair_group(usage_container);
     build_idle_group(usage_container);
 
@@ -630,11 +661,13 @@ void ui_init(void) {
         clawd_footprint_w = 28 * mascot_cell;
         // The 240px header is exactly one 21-cell act tall at cell=2.
         if (L.small_icons) mascot_feet_y = L.content_y - 1;
-        splash_mascot_create(scr, L.margin, mascot_feet_y, mascot_cell);
+        clawd_mascot_img =
+            splash_mascot_create(scr, L.margin, mascot_feet_y, mascot_cell);
 #else
         logo_img = lv_image_create(scr);
         lv_image_set_src(logo_img, &logo_dsc);
         lv_obj_set_pos(logo_img, L.margin, top);
+        logo_all_y = top;
 #endif
 
         // Compensate for the transparent bottom padding so the visible
@@ -643,9 +676,10 @@ void ui_init(void) {
                               + (L.small_icons ? 2 : 3);
         codex_logo_img = lv_image_create(scr);
         lv_image_set_src(codex_logo_img, &codex_header_dsc);
-        lv_obj_set_pos(codex_logo_img,
-                       L.margin + clawd_footprint_w + (L.small_icons ? 2 : 6),
-                       robot_top);
+        codex_logo_all_x =
+            (int16_t)(L.margin + clawd_footprint_w + (L.small_icons ? 2 : 6));
+        codex_logo_all_y = robot_top;
+        lv_obj_set_pos(codex_logo_img, codex_logo_all_x, codex_logo_all_y);
     }
 
     battery_img = lv_image_create(scr);
@@ -660,8 +694,173 @@ void ui_init(void) {
 }
 
 static void set_usage_title(void) {
-    if (clock_base_epoch > 0) return;  // live clock owns the title
-    lv_label_set_text(lbl_title, "Usage");
+    if (usage_page == usage_pages::Page::Claude) {
+        lv_label_set_text(lbl_title, "Claude");
+    } else if (usage_page == usage_pages::Page::Codex) {
+        lv_label_set_text(lbl_title, "Codex");
+    } else if (clock_base_epoch > 0) {
+        const uint32_t now = lv_tick_get();
+        time_t cur = (time_t)(clock_base_epoch + (now - clock_base_ms) / 1000);
+        struct tm tmv;
+        gmtime_r(&cur, &tmv);
+        char tbuf[12];
+        if (clock_fmt == 12) {
+            int h12 = tmv.tm_hour % 12;
+            if (h12 == 0) h12 = 12;
+            snprintf(tbuf, sizeof(tbuf), "%d:%02d %s", h12, tmv.tm_min,
+                     tmv.tm_hour < 12 ? "AM" : "PM");
+        } else {
+            snprintf(tbuf, sizeof(tbuf), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+        }
+        clock_last_min = tmv.tm_min;
+        lv_label_set_text(lbl_title, tbuf);
+    } else {
+        lv_label_set_text(lbl_title, "Usage");
+    }
+}
+
+static usage_pages::Availability provider_availability(void) {
+    return {
+        last_usage.valid && last_usage.ok,
+        last_usage.valid && last_usage.codex_valid && last_usage.codex_ok,
+    };
+}
+
+static void position_provider_card(ProviderCard* card, int16_t y,
+                                   int16_t height, int16_t metrics_offset) {
+    lv_obj_set_pos(card->panel, L.margin, y);
+    lv_obj_set_size(card->panel, L.content_w, height);
+    for (int i = 0; i < 2; ++i) {
+        lv_obj_set_y(card->period[i], L.usage_period_y + metrics_offset);
+        lv_obj_set_y(card->pct[i], L.usage_pct_y + metrics_offset);
+        lv_obj_set_y(card->bar[i], L.usage_bar_y + metrics_offset);
+        lv_obj_set_y(card->reset[i], L.usage_reset_y + metrics_offset);
+    }
+}
+
+static void set_card_identity_visible(ProviderCard* card, bool visible) {
+    if (visible) lv_obj_clear_flag(card->provider, LV_OBJ_FLAG_HIDDEN);
+    else         lv_obj_add_flag(card->provider, LV_OBJ_FLAG_HIDDEN);
+    if (!card->icon) return;
+    if (visible) lv_obj_clear_flag(card->icon, LV_OBJ_FLAG_HIDDEN);
+    else         lv_obj_add_flag(card->icon, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void apply_header_state(screen_t screen) {
+    const bool usage_visible = screen != SCREEN_SPLASH;
+    const bool focused = usage_page == usage_pages::Page::Claude ||
+                         usage_page == usage_pages::Page::Codex;
+    const bool show_clawd = usage_visible && usage_page != usage_pages::Page::Codex;
+    const bool show_codex = usage_visible && usage_page != usage_pages::Page::Claude;
+    const int16_t battery_h = L.small_icons ? ICON_BATTERY_SMALL_H : ICON_BATTERY_H;
+
+    splash_mascot_set_visible(show_clawd);
+    if (clawd_mascot_img) {
+        lv_obj_set_style_translate_y(
+            clawd_mascot_img,
+            usage_page == usage_pages::Page::Claude ? (L.small_icons ? -5 : -8) : 0,
+            0);
+    }
+    if (logo_img) {
+        if (show_clawd) lv_obj_clear_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
+        else            lv_obj_add_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
+        const int16_t focused_logo_y =
+            (int16_t)(L.batt_y + (battery_h - (int16_t)logo_dsc.header.h) / 2);
+        lv_obj_set_y(logo_img,
+                     usage_page == usage_pages::Page::Claude
+                         ? focused_logo_y
+                         : logo_all_y);
+    }
+    if (codex_logo_img) {
+        if (show_codex) lv_obj_clear_flag(codex_logo_img, LV_OBJ_FLAG_HIDDEN);
+        else            lv_obj_add_flag(codex_logo_img, LV_OBJ_FLAG_HIDDEN);
+        const int16_t focused_robot_y =
+            (int16_t)(L.batt_y + (battery_h - (int16_t)codex_header_dsc.header.h) / 2);
+        lv_obj_set_pos(codex_logo_img,
+                       usage_page == usage_pages::Page::Codex ? L.margin : codex_logo_all_x,
+                       usage_page == usage_pages::Page::Codex
+                           ? focused_robot_y
+                           : codex_logo_all_y);
+    }
+
+    const int16_t focused_title_y =
+        (int16_t)(L.batt_y + (battery_h - L.title_font->line_height) / 2);
+    lv_obj_align(lbl_title, LV_ALIGN_TOP_MID,
+                 focused || clock_base_epoch <= 0 ? 0 : L.title_nudge,
+                 focused ? focused_title_y : L.title_y);
+    lv_obj_set_style_text_color(
+        lbl_title,
+        usage_page == usage_pages::Page::Claude ? COL_ACCENT
+        : usage_page == usage_pages::Page::Codex ? COL_CODEX
+                                                  : COL_TEXT,
+        0);
+    lv_obj_set_style_text_color(lbl_anim, COL_DIM, 0);
+}
+
+static void apply_page_indicator(usage_pages::Availability available) {
+    const int active = usage_page == usage_pages::Page::Claude ? 1
+                     : usage_page == usage_pages::Page::Codex ? 2 : 0;
+    const bool visible[3] = {true, available.claude, available.codex};
+    const int16_t dot = L.small_icons ? 4 : 6;
+    const int16_t gap = L.small_icons ? 7 : 10;
+    const int16_t bottom_offset =
+        (int16_t)(L.anim_y - L.anim_font->line_height - (L.small_icons ? 8 : 12));
+    int visible_count = 0;
+    for (bool item_visible : visible) {
+        if (item_visible) ++visible_count;
+    }
+    const int16_t indicator_width =
+        (int16_t)(visible_count * dot + (visible_count - 1) * gap);
+    lv_obj_set_width(page_indicator, indicator_width);
+    lv_obj_align(page_indicator, LV_ALIGN_BOTTOM_MID, 0, bottom_offset);
+
+    int visible_index = 0;
+    for (int i = 0; i < 3; ++i) {
+        if (visible[i]) {
+            lv_obj_clear_flag(page_dots[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_x(page_dots[i], visible_index++ * (dot + gap));
+        } else {
+            lv_obj_add_flag(page_dots[i], LV_OBJ_FLAG_HIDDEN);
+        }
+        const lv_color_t color = i == active
+            ? (i == 1 ? COL_ACCENT : i == 2 ? COL_CODEX : COL_TEXT)
+            : COL_DIM;
+        lv_obj_set_style_bg_color(page_dots[i], color, 0);
+        lv_obj_set_style_bg_opa(page_dots[i], i == active ? LV_OPA_COVER : LV_OPA_50, 0);
+    }
+}
+
+static void apply_usage_page_layout(void) {
+    usage_page = usage_pages::normalize(usage_page, provider_availability());
+    const usage_pages::CardLayout page_layout =
+        usage_pages::layout(usage_page, L.usage_card_h, L.usage_card_gap);
+    int16_t metrics_offset = 0;
+    if (page_layout.focused) {
+        const int16_t metrics_span =
+            (int16_t)(L.usage_reset_y + L.reset_font->line_height - L.usage_period_y);
+        metrics_offset =
+            (int16_t)((page_layout.card_height - metrics_span) / 2 - L.usage_period_y);
+    }
+
+    const int16_t focused_y = (int16_t)(L.content_y + page_layout.card_y_offset);
+    position_provider_card(&claude_card,
+                           usage_page == usage_pages::Page::Claude ? focused_y : L.content_y,
+                           page_layout.card_height, metrics_offset);
+    position_provider_card(&codex_card,
+                           usage_page == usage_pages::Page::Codex
+                               ? focused_y
+                               : L.content_y + L.usage_card_h + L.usage_card_gap,
+                           page_layout.card_height, metrics_offset);
+
+    if (page_layout.claude_visible) lv_obj_clear_flag(claude_card.panel, LV_OBJ_FLAG_HIDDEN);
+    else                            lv_obj_add_flag(claude_card.panel, LV_OBJ_FLAG_HIDDEN);
+    if (page_layout.codex_visible) lv_obj_clear_flag(codex_card.panel, LV_OBJ_FLAG_HIDDEN);
+    else                           lv_obj_add_flag(codex_card.panel, LV_OBJ_FLAG_HIDDEN);
+    set_card_identity_visible(&claude_card, usage_page == usage_pages::Page::All);
+    set_card_identity_visible(&codex_card, usage_page == usage_pages::Page::All);
+    apply_page_indicator(provider_availability());
+    set_usage_title();
+    apply_header_state(current_screen);
 }
 
 static void render_window(ProviderCard* card, int index, float used_pct,
@@ -743,7 +942,7 @@ static void render_codex(void) {
 
 static void apply_usage_view(void) {
     if (!last_usage.valid) return;
-    set_usage_title();
+    apply_usage_page_layout();
     render_claude();
     render_codex();
 }
@@ -815,22 +1014,13 @@ void ui_tick_anim(void) {
 
     // Title clock: once the daemon has sent wall-clock time, replace "Usage" with
     // the live time, advanced locally so it ticks every minute between payloads.
-    if (clock_base_epoch > 0) {
+    if (clock_base_epoch > 0 && usage_page == usage_pages::Page::All) {
         time_t cur = (time_t)(clock_base_epoch + (now - clock_base_ms) / 1000);
         struct tm tmv;
         gmtime_r(&cur, &tmv);   // epoch is already local wall-clock → gmtime keeps it as-is
         if (tmv.tm_min != clock_last_min) {   // only rewrite the title when the minute changes
             clock_last_min = tmv.tm_min;
-            char tbuf[12];
-            if (clock_fmt == 12) {
-                int h12 = tmv.tm_hour % 12;
-                if (h12 == 0) h12 = 12;
-                snprintf(tbuf, sizeof(tbuf), "%d:%02d %s", h12, tmv.tm_min,
-                         tmv.tm_hour < 12 ? "AM" : "PM");
-            } else {
-                snprintf(tbuf, sizeof(tbuf), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
-            }
-            lv_label_set_text(lbl_title, tbuf);
+            set_usage_title();
         }
     }
 
@@ -859,8 +1049,12 @@ void ui_tick_anim(void) {
 
     // All states share the whimsical style: "<glyph> <Title-case word>…"
     static char buf[80];
-    snprintf(buf, sizeof(buf), "%s %s\xE2\x80\xA6",
-             spinner_frames[anim_spinner_idx], text);
+    if (s_ble_connected && view_state != 1) {
+        snprintf(buf, sizeof(buf), "%s %s", spinner_frames[anim_spinner_idx], text);
+    } else {
+        snprintf(buf, sizeof(buf), "%s %s\xE2\x80\xA6",
+                 spinner_frames[anim_spinner_idx], text);
+    }
     lv_label_set_text(lbl_anim, buf);
 }
 
@@ -874,11 +1068,26 @@ static void apply_battery_visibility(void) {
 static void global_click_cb(lv_event_t* e) {
     (void)e;
     if (current_screen == SCREEN_SPLASH) {
+        usage_page = usage_pages::Page::All;
         ui_show_screen(SCREEN_USAGE);
         apply_usage_view();
         return;
     }
-    ui_show_screen(SCREEN_SPLASH);
+    // Preserve the old pair/idle behavior: tapping a non-live dashboard goes
+    // straight back to the splash. Live usage cycles only pages that exist.
+    if (view_state != 2) {
+        ui_show_screen(SCREEN_SPLASH);
+        return;
+    }
+
+    const usage_pages::Page next =
+        usage_pages::next(usage_page, provider_availability());
+    if (next == usage_pages::Page::Splash) {
+        ui_show_screen(SCREEN_SPLASH);
+        return;
+    }
+    usage_page = next;
+    apply_usage_page_layout();
 }
 
 void ui_show_screen(screen_t screen) {
@@ -891,18 +1100,9 @@ void ui_show_screen(screen_t screen) {
     default: break;
     }
 
-    splash_mascot_set_visible(screen != SCREEN_SPLASH);
-    if (logo_img) {
-        if (screen == SCREEN_SPLASH) lv_obj_add_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
-        else                          lv_obj_clear_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (codex_logo_img) {
-        if (screen == SCREEN_SPLASH) lv_obj_add_flag(codex_logo_img, LV_OBJ_FLAG_HIDDEN);
-        else                          lv_obj_clear_flag(codex_logo_img, LV_OBJ_FLAG_HIDDEN);
-    }
-
     if (screen != SCREEN_SPLASH) prev_non_splash_screen = screen;
     current_screen = screen;
+    apply_header_state(screen);
     apply_battery_visibility();
 }
 

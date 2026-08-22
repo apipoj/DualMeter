@@ -1,7 +1,10 @@
 #include "sim_platform.h"
+#include "board.h"
 #include <SDL.h>
 #include <Arduino.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static bool quit = false;
 
@@ -20,6 +23,43 @@ bool sim_take_pwr_released(void) { return take(&edge_released); }
 int  sim_battery_pct(void) { return battery; }
 bool sim_charging(void)    { return charging; }
 bool sim_should_quit(void) { return quit; }
+
+bool sim_touch_override(uint16_t* x, uint16_t* y, bool* pressed) {
+    static bool initialized = false;
+    static long tap_ms[8];
+    static int tap_count = 0;
+    static int tap_index = 0;
+
+    if (!initialized) {
+        initialized = true;
+        const char* value = getenv("SIM_AUTOTAP_MS");
+        if (value && *value) {
+            char list[128];
+            snprintf(list, sizeof(list), "%s", value);
+            char* save = nullptr;
+            for (char* token = strtok_r(list, ",", &save);
+                 token && tap_count < (int)(sizeof(tap_ms) / sizeof(tap_ms[0]));
+                 token = strtok_r(nullptr, ",", &save)) {
+                char* end = nullptr;
+                const long value_ms = strtol(token, &end, 10);
+                if (end != token && value_ms >= 0) tap_ms[tap_count++] = value_ms;
+            }
+        }
+    }
+    if (tap_index >= tap_count) return false;
+
+    const uint32_t now = millis();
+    while (tap_index < tap_count && now > (uint32_t)(tap_ms[tap_index] + 100)) {
+        ++tap_index;
+    }
+    if (tap_index >= tap_count) return false;
+
+    *x = LCD_WIDTH / 2;
+    *y = LCD_HEIGHT / 2;
+    *pressed = now >= (uint32_t)tap_ms[tap_index] &&
+               now < (uint32_t)(tap_ms[tap_index] + 70);
+    return true;
+}
 
 // Matches the AXP2101 long-press threshold main.cpp's pair gesture expects.
 #define PWR_LONG_MS 1500

@@ -19,6 +19,10 @@ bool sim_take_pwr_released(void);
 int  sim_battery_pct(void);
 bool sim_charging(void);
 
+// Optional headless touch sequence. When SIM_AUTOTAP_MS is set to a
+// comma-separated list, this supplies center-screen press/release pulses.
+bool sim_touch_override(uint16_t* x, uint16_t* y, bool* pressed);
+
 // Scenario playback controls, implemented in ble_sim.cpp.
 void sim_playback_toggle(void);
 void sim_playback_step(int dir);
