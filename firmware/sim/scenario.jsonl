@@ -1,7 +1,7 @@
 # Default sim scenario — one daemon payload per line, played in a loop.
 # Extra keys: "name" (window title), "hold_ms" (time on this state, default 3000).
 # Keys: space play/pause · arrows step · 1-9 jump · see boards/sim/board.h.
-{"name":"both providers + clock","hold_ms":5000,"s":42.0,"sr":180,"w":33.0,"wr":7900,"st":"allowed","ok":true,"t":1787364000,"tf":24,"xs":27.0,"xsr":110,"xw":41.0,"xwr":5400,"xok":true}
+{"name":"both providers + 12h clock","hold_ms":5000,"s":42.0,"sr":180,"w":33.0,"wr":7900,"st":"allowed","ok":true,"t":1787356800,"tf":12,"xs":27.0,"xsr":110,"xw":41.0,"xwr":5400,"xok":true}
 {"name":"mixed pressure","hold_ms":4000,"s":78.0,"sr":75,"w":55.0,"wr":6400,"st":"allowed","ok":true,"xs":91.0,"xsr":19,"xw":62.0,"xwr":4200,"xok":true}
 {"name":"session nearly full","hold_ms":3000,"s":98.0,"sr":12,"w":55.0,"wr":6300,"st":"limited","ok":true,"xs":91.0,"xsr":18,"xw":62.0,"xwr":4199,"xok":true}
 {"name":"session reset + chime","hold_ms":4000,"s":2.0,"sr":298,"w":55.0,"wr":6299,"st":"allowed","c":true,"ok":true,"xs":91.0,"xsr":17,"xw":62.0,"xwr":4198,"xok":true}

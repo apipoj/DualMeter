@@ -121,7 +121,8 @@ static void compute_layout(const BoardCaps& c) {
         L.bt_device_font   = &font_styrene_28;
         L.bt_credit_1_font = &font_styrene_24;
         L.bt_credit_2_font = &font_styrene_20;
-        if (c.width < 440) L.title_nudge = 34;
+        // Keep the longest 12-hour clock clear of the mascot pair on 410px.
+        if (c.width < 440) L.title_nudge = 46;
     } else if (c.height >= 300) {
         // Compact layout — tuned for 368x448 (AMOLED-1.8).
         L.content_y = 82;
@@ -135,6 +136,8 @@ static void compute_layout(const BoardCaps& c) {
         L.bar_h = 8;
         L.panel_pad_x = 14;
         L.title_font   = &font_tiempos_34;
+        // 368px PSRAM boards reserve a wider animated-Clawd footprint.
+        L.title_nudge = 26;
         L.provider_font = &font_styrene_16;
         L.period_font  = &font_styrene_12;
         L.pct_font     = &font_styrene_28;
