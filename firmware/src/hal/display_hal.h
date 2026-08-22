@@ -1,6 +1,15 @@
 #pragma once
 #include <stdint.h>
 
+// One source of truth for the largest LVGL partial flush. Software-rotation
+// boards size their transform strip from this same value, so increasing the
+// renderer buffer cannot silently make rotated flushes overflow.
+#ifdef BOARD_HAS_PSRAM
+#define DISPLAY_PARTIAL_LINES 40
+#else
+#define DISPLAY_PARTIAL_LINES 20
+#endif
+
 // Display abstraction. The board provides the QSPI bus, panel driver, and any
 // CPU-side rotation. Shared code (main.cpp, LVGL glue) never sees the GFX
 // driver type. Dimensions are not declared here — query board_caps().

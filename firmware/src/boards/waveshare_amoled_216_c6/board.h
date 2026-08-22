@@ -42,7 +42,7 @@
 #define AXP2101_ADDR         0x34
 
 // ---- Buttons ----
-// Three side-mounted buttons:
+// Three top-mounted buttons in the supported desk orientation:
 //   BOOT (primary) — GPIO 9, sends Space (PTT) over BLE HID
 //   PWR  (cycle screens) — AXP2101 PKEY IRQ, handled in power.cpp
 //   KEY  (secondary) — GPIO 10, sends Shift+Tab (mode toggle) over BLE HID

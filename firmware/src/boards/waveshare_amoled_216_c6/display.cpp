@@ -16,12 +16,9 @@
 // every LVGL partial flush is rotated 90 degrees CCW into one internal-SRAM
 // strip. This is fixed mounting compensation, not IMU-driven rotation.
 
-#define ROT_BUF_LINES 20
-static uint16_t rot_buf[LCD_WIDTH * ROT_BUF_LINES];
+static uint16_t rot_buf[LCD_WIDTH * DISPLAY_PARTIAL_LINES];
 static_assert(LCD_WIDTH == LCD_HEIGHT,
               "Fixed C6 rotation currently requires a square panel");
-static_assert(sizeof(rot_buf) == LCD_WIDTH * ROT_BUF_LINES * sizeof(uint16_t),
-              "Rotation strip must match the C6 LVGL partial buffer capacity");
 
 static Arduino_DataBus* bus = nullptr;
 static Arduino_CO5300*  gfx = nullptr;
@@ -78,7 +75,11 @@ void display_hal_draw_bitmap(int32_t x, int32_t y, int32_t w, int32_t h,
 
     const int32_t pixel_count = w * h;
     if (pixel_count > (int32_t)(sizeof(rot_buf) / sizeof(rot_buf[0]))) {
-        Serial.printf("Rotation buffer overflow: %ld pixels\n", (long)pixel_count);
+        static bool overflow_logged = false;
+        if (!overflow_logged) {
+            Serial.printf("Rotation buffer overflow: %ld pixels\n", (long)pixel_count);
+            overflow_logged = true;
+        }
         return;
     }
 
