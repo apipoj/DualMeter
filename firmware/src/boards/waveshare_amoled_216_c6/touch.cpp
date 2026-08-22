@@ -1,5 +1,6 @@
 #include "../../hal/touch_hal.h"
 #include "board.h"
+#include "fixed_rotation.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <TouchDrvCSTXXX.hpp>
@@ -22,14 +23,8 @@ void touch_hal_init(void) {
         return;
     }
     touch.setMaxCoordinates(LCD_WIDTH, LCD_HEIGHT);
-    // C6 2.16 panel mapping. The original values (swap=true, mirrorX=true)
-    // were calibrated to the old display orientation that force-wrote MADCTL
-    // 0x30 (MV transpose + ML). The display now runs at the CO5300 class
-    // default (MADCTL 0x00 — USB-port-on-the-side orientation), so the touch
-    // mapping is re-derived to match. SensorLib applies swap then mirror
-    // (TouchDrvInterface::updateXY); tap-tested on C6 hardware, the raw
-    // CST9217 coordinates map straight through in this orientation — no swap,
-    // no mirror.
+    // Keep SensorLib output in physical panel coordinates. touch_hal_read()
+    // applies the inverse of the fixed display rotation before LVGL sees it.
     touch.setSwapXY(false);
     touch.setMirrorXY(false, false);
     pinMode(TP_INT, INPUT_PULLUP);
@@ -44,8 +39,10 @@ void touch_hal_read(uint16_t* x, uint16_t* y, bool* pressed) {
         uint8_t n = touch.getPoint(tx, ty, touch.getSupportTouchPoint());
         if (n > 0) {
             touch_pressed = true;
-            touch_x = (uint16_t)tx[0];
-            touch_y = (uint16_t)ty[0];
+            const c6_rotation::Point logical =
+                c6_rotation::panel_to_logical(tx[0], ty[0], LCD_WIDTH);
+            touch_x = (uint16_t)constrain(logical.x, 0, LCD_WIDTH - 1);
+            touch_y = (uint16_t)constrain(logical.y, 0, LCD_HEIGHT - 1);
         } else {
             touch_pressed = false;
         }

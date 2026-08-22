@@ -8,8 +8,7 @@
 #include <lvgl.h>
 
 // Render strip used when rotating in software. Sized to the largest LVGL
-// partial flush we ever do (LCD_WIDTH × BUF_LINES, set in main.cpp).
-#define ROT_BUF_LINES 40
+// partial flush from the shared display HAL contract.
 static uint16_t* rot_buf = nullptr;
 
 static Arduino_DataBus* bus = nullptr;
@@ -29,8 +28,9 @@ void display_hal_begin(void) {
     gfx->fillScreen(0x0000);
     gfx->setBrightness(200);
 
-    // Allocate rotation strip (PSRAM). Sized to match main.cpp's BUF_LINES.
-    rot_buf = (uint16_t*)heap_caps_malloc(LCD_WIDTH * ROT_BUF_LINES * 2, MALLOC_CAP_SPIRAM);
+    // Allocate rotation strip (PSRAM). Sized from the same constant as LVGL.
+    rot_buf = (uint16_t*)heap_caps_malloc(
+        LCD_WIDTH * DISPLAY_PARTIAL_LINES * 2, MALLOC_CAP_SPIRAM);
 }
 
 void display_hal_set_brightness(uint8_t level) {

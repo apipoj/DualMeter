@@ -28,10 +28,8 @@ static UsageData usage = {};
 // boards (e.g. ESP32-C6) allocate from internal SRAM, so we shrink the strip
 // — 480×20 RGB565 = 19 KB × 2 buffers = 38 KB, fits beside everything else.
 #ifdef BOARD_HAS_PSRAM
-#define BUF_LINES 40
 #define LV_BUF_CAPS (MALLOC_CAP_SPIRAM)
 #else
-#define BUF_LINES 20
 #define LV_BUF_CAPS (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
 #endif
 static uint16_t* buf1 = nullptr;
@@ -234,13 +232,13 @@ void setup() {
     lv_init();
     lv_tick_set_cb(my_tick);
 
-    buf1 = (uint16_t*)heap_caps_malloc(W * BUF_LINES * 2, LV_BUF_CAPS);
-    buf2 = (uint16_t*)heap_caps_malloc(W * BUF_LINES * 2, LV_BUF_CAPS);
+    buf1 = (uint16_t*)heap_caps_malloc(W * DISPLAY_PARTIAL_LINES * 2, LV_BUF_CAPS);
+    buf2 = (uint16_t*)heap_caps_malloc(W * DISPLAY_PARTIAL_LINES * 2, LV_BUF_CAPS);
 
     lv_display_t* disp = lv_display_create(W, H);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(disp, my_flush_cb);
-    lv_display_set_buffers(disp, buf1, buf2, W * BUF_LINES * 2,
+    lv_display_set_buffers(disp, buf1, buf2, W * DISPLAY_PARTIAL_LINES * 2,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_add_event_cb(disp, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 

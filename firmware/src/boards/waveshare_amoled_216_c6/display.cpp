@@ -1,5 +1,6 @@
 #include "../../hal/display_hal.h"
 #include "board.h"
+#include "fixed_rotation.h"
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 
@@ -8,8 +9,16 @@
 // AMOLED-2.16 sibling, so we drive it with Arduino_CO5300 and reuse that
 // class's vendor-correct init rather than the SH8601 class + a hand-patched
 // sequence. LCD reset is not wired to any MCU GPIO; the panel boots from its
-// internal power-on reset (rst = GFX_NOT_DEFINED). Rotation is disabled (no
-// PSRAM headroom for a rotation strip).
+// internal power-on reset (rst = GFX_NOT_DEFINED).
+//
+// The device is desk-mounted 90 degrees clockwise so its original left-edge
+// buttons sit along the top. CO5300 cannot transpose pixels in hardware, so
+// every LVGL partial flush is rotated 90 degrees CCW into one internal-SRAM
+// strip. This is fixed mounting compensation, not IMU-driven rotation.
+
+static uint16_t rot_buf[LCD_WIDTH * DISPLAY_PARTIAL_LINES];
+static_assert(LCD_WIDTH == LCD_HEIGHT,
+              "Fixed C6 rotation currently requires a square panel");
 
 static Arduino_DataBus* bus = nullptr;
 static Arduino_CO5300*  gfx = nullptr;
@@ -32,10 +41,9 @@ void display_hal_init(void) {
 // rails up. Set just those; everything else the SH8601-era hack also wrote
 // (0xC4/0x36/0x53/0x51/0x63/0x29) is now covered by the class init.
 //
-// Note: we deliberately do NOT restore the old MADCTL 0x30 (MV transpose).
-// The CO5300 class default (rotation-0, MADCTL 0x00) orients the panel with
-// the USB port on the side, which is the preferred desk orientation for this
-// board.
+// Keep the CO5300 at its rotation-0 MADCTL. Its hardware supports X/Y flips
+// but not the transpose needed for a quarter turn; display_hal_draw_bitmap()
+// performs the fixed 90-degree compensation instead.
 static void send_panel_driving_init(Arduino_DataBus* b) {
     b->beginWrite();
     b->writeC8D8(0xFE, 0x20);    // enter manufacturer command page 0x20
@@ -63,7 +71,22 @@ void display_hal_fill_screen(uint16_t color) {
 
 void display_hal_draw_bitmap(int32_t x, int32_t y, int32_t w, int32_t h,
                              const uint16_t* pixels) {
-    if (gfx) gfx->draw16bitRGBBitmap(x, y, (uint16_t*)pixels, w, h);
+    if (!gfx) return;
+
+    const int32_t pixel_count = w * h;
+    if (pixel_count > (int32_t)(sizeof(rot_buf) / sizeof(rot_buf[0]))) {
+        static bool overflow_logged = false;
+        if (!overflow_logged) {
+            Serial.printf("Rotation buffer overflow: %ld pixels\n", (long)pixel_count);
+            overflow_logged = true;
+        }
+        return;
+    }
+
+    c6_rotation::rotate_pixels_ccw(pixels, rot_buf, w, h);
+    const c6_rotation::Rect dst =
+        c6_rotation::logical_rect_to_panel(x, y, w, h, LCD_WIDTH);
+    gfx->draw16bitRGBBitmap(dst.x, dst.y, rot_buf, dst.w, dst.h);
 }
 
 void display_hal_tick(void) {
