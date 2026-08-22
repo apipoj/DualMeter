@@ -14,7 +14,7 @@ Firmware is based on [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter)
 
 ## Hardware
 
-Waveshare ESP32-C6-Touch-AMOLED-2.16 only (no PSRAM). Other boards are still in `firmware/platformio.ini` from upstream but are untested in this fork.
+Waveshare ESP32-C6-Touch-AMOLED-2.16 only (no PSRAM). Mount it with the three physical buttons along the top edge; firmware rotates the display and touch mapping for that orientation. Other boards are still in `firmware/platformio.ini` from upstream but are untested in this fork.
 
 ## macOS setup
 
