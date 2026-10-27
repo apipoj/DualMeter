@@ -24,4 +24,14 @@ struct UsageData {
     int   codex_weekly_reset_mins;
     bool  codex_ok;
     bool  codex_valid;
+
+    // Kimi Code 5h / 7d windows, same shape as Codex. Opt-in on the daemon,
+    // so kimi_valid stays false (two-card layout) until a payload carries it.
+    float kimi_session_pct;
+    int   kimi_session_reset_mins;
+    float kimi_weekly_pct;
+    int   kimi_weekly_reset_mins;
+    bool  kimi_ok;
+    bool  kimi_valid;
+    bool  kimi_weekly_is_monthly;  // plan has no 7d pool; second column is monthly
 };

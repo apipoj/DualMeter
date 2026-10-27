@@ -3,6 +3,7 @@
 #include "splash.h"
 #include <lvgl.h>
 #include <time.h>
+#include <string.h>
 #include "logo.h"
 #include "clawd_still.h"
 #include "clawd_icon.h"
@@ -45,6 +46,14 @@ struct Layout {
     int16_t usage_reset_y;
     int16_t bar_h;
     int16_t panel_pad_x, panel_pad_y;
+    // Three-provider dashboard: cards shrink to fit the two-card envelope, so
+    // each window collapses to one "pct ... 5H 2h 13m" row over its bar.
+    int16_t tri_pct_y;
+    int16_t tri_reset_y;
+    int16_t tri_bar_y;
+    int16_t tri_bar_h;
+    const lv_font_t* tri_pct_font;
+    const lv_font_t* tri_reset_font;
     const lv_font_t* title_font;     // screen title / clock
     const lv_font_t* provider_font;  // Claude / Codex card name
     const lv_font_t* period_font;    // 5H / 7D / SPEND / PERIOD
@@ -122,6 +131,12 @@ static void compute_layout(const BoardCaps& c) {
         L.bt_device_font   = &font_styrene_28;
         L.bt_credit_1_font = &font_styrene_24;
         L.bt_credit_2_font = &font_styrene_20;
+        L.tri_pct_font   = &font_styrene_28;
+        L.tri_reset_font = &font_styrene_14;
+        L.tri_pct_y   = 24;
+        L.tri_reset_y = 37;   // shares the pct baseline
+        L.tri_bar_y   = 60;
+        L.tri_bar_h   = 8;
         // Keep the longest 12-hour clock clear of the mascot pair on 410px.
         if (c.width < 440) L.title_nudge = 46;
     } else if (c.height >= 300) {
@@ -150,6 +165,12 @@ static void compute_layout(const BoardCaps& c) {
         L.bt_device_font   = &font_styrene_20;
         L.bt_credit_1_font = &font_styrene_16;
         L.bt_credit_2_font = &font_styrene_14;
+        L.tri_pct_font   = &font_styrene_24;
+        L.tri_reset_font = &font_styrene_12;
+        L.tri_pct_y   = 20;
+        L.tri_reset_y = 29;
+        L.tri_bar_y   = 52;
+        L.tri_bar_h   = 6;
     } else {
         // Small layout — tuned for 240x240 (LCD-1.54 and similar square TFTs).
         // Everything shrinks: fonts two steps down, panels ~half height, and
@@ -194,6 +215,12 @@ static void compute_layout(const BoardCaps& c) {
         L.bt_device_font   = &font_styrene_14;
         L.bt_credit_1_font = &font_styrene_12;
         L.bt_credit_2_font = &font_styrene_12;
+        L.tri_pct_font   = &font_styrene_14;
+        L.tri_reset_font = &font_styrene_12;
+        L.tri_pct_y   = 15;
+        L.tri_reset_y = 15;
+        L.tri_bar_y   = 32;
+        L.tri_bar_h   = 4;
     }
 
     L.content_w = L.scr_w - 2 * L.margin;
@@ -207,6 +234,7 @@ static void compute_layout(const BoardCaps& c) {
 #define COL_DIM       THEME_DIM
 #define COL_ACCENT    THEME_ACCENT
 #define COL_CODEX     THEME_CODEX
+#define COL_KIMI      THEME_KIMI
 #define COL_GREEN     THEME_GREEN
 #define COL_AMBER     THEME_AMBER
 #define COL_RED       THEME_RED
@@ -223,7 +251,7 @@ static int      clock_fmt = 24;   // 12 or 24, set from the daemon payload
 static int      clock_last_min = -1;   // last rendered minute; avoids redrawing the title every tick
 static lv_obj_t* usage_group;   // the two usage panels — shown when connected
 static lv_obj_t* page_indicator;
-static lv_obj_t* page_dots[3];
+static lv_obj_t* page_dots[4];   // All / Claude / Codex / Kimi
 static lv_obj_t* pair_group;    // pairing hint — shown when disconnected
 struct ProviderCard {
     lv_obj_t* panel;
@@ -236,6 +264,8 @@ struct ProviderCard {
 };
 static ProviderCard claude_card = {};
 static ProviderCard codex_card = {};
+static ProviderCard kimi_card = {};
+static bool compact_cards = false;  // three-provider dashboard is showing
 static lv_image_dsc_t clawd_icon_dsc = {};
 static lv_image_dsc_t codex_icon_dsc = {};
 static lv_image_dsc_t codex_header_dsc = {};
@@ -574,6 +604,11 @@ static void init_usage_screen(lv_obj_t* scr) {
     build_provider_card(usage_group,
                         L.content_y + L.usage_card_h + L.usage_card_gap,
                         "Codex", COL_CODEX, &codex_card, &codex_icon_dsc);
+    // No Kimi mascot art ships with the firmware, so its card is name-only.
+    build_provider_card(usage_group,
+                        L.content_y + 2 * (L.usage_card_h + L.usage_card_gap),
+                        "Kimi", COL_KIMI, &kimi_card);
+    lv_obj_add_flag(kimi_card.panel, LV_OBJ_FLAG_HIDDEN);
 
     page_indicator = lv_obj_create(usage_group);
     lv_obj_set_size(page_indicator, L.small_icons ? 34 : 46,
@@ -587,7 +622,7 @@ static void init_usage_screen(lv_obj_t* scr) {
     lv_obj_add_flag(page_indicator, LV_OBJ_FLAG_EVENT_BUBBLE);
     const int16_t dot = L.small_icons ? 4 : 6;
     const int16_t dot_gap = L.small_icons ? 7 : 10;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         page_dots[i] = lv_obj_create(page_indicator);
         lv_obj_set_size(page_dots[i], dot, dot);
         lv_obj_set_pos(page_dots[i], i * (dot + dot_gap), 0);
@@ -698,6 +733,8 @@ static void set_usage_title(void) {
         lv_label_set_text(lbl_title, "Claude");
     } else if (usage_page == usage_pages::Page::Codex) {
         lv_label_set_text(lbl_title, "Codex");
+    } else if (usage_page == usage_pages::Page::Kimi) {
+        lv_label_set_text(lbl_title, "Kimi");
     } else if (clock_base_epoch > 0) {
         const uint32_t now = lv_tick_get();
         time_t cur = (time_t)(clock_base_epoch + (now - clock_base_ms) / 1000);
@@ -723,18 +760,30 @@ static usage_pages::Availability provider_availability(void) {
     return {
         last_usage.valid && last_usage.ok,
         last_usage.valid && last_usage.codex_valid && last_usage.codex_ok,
+        last_usage.valid && last_usage.kimi_valid && last_usage.kimi_ok,
     };
 }
 
 static void position_provider_card(ProviderCard* card, int16_t y,
-                                   int16_t height, int16_t metrics_offset) {
+                                   int16_t height, int16_t metrics_offset,
+                                   bool compact = false) {
     lv_obj_set_pos(card->panel, L.margin, y);
     lv_obj_set_size(card->panel, L.content_w, height);
+    const lv_font_t* reset_font = compact ? L.tri_reset_font : L.reset_font;
     for (int i = 0; i < 2; ++i) {
+        // Compact rows fold the period into the reset label ("5H 2h 13m").
+        if (compact) lv_obj_add_flag(card->period[i], LV_OBJ_FLAG_HIDDEN);
+        else         lv_obj_clear_flag(card->period[i], LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_y(card->period[i], L.usage_period_y + metrics_offset);
-        lv_obj_set_y(card->pct[i], L.usage_pct_y + metrics_offset);
-        lv_obj_set_y(card->bar[i], L.usage_bar_y + metrics_offset);
-        lv_obj_set_y(card->reset[i], L.usage_reset_y + metrics_offset);
+        lv_obj_set_style_text_font(card->pct[i], compact ? L.tri_pct_font : L.pct_font, 0);
+        lv_obj_set_y(card->pct[i], compact ? L.tri_pct_y : L.usage_pct_y + metrics_offset);
+        lv_obj_set_y(card->bar[i], compact ? L.tri_bar_y : L.usage_bar_y + metrics_offset);
+        lv_obj_set_height(card->bar[i], compact ? L.tri_bar_h : L.bar_h);
+        lv_obj_set_style_text_font(card->reset[i], reset_font, 0);
+        lv_obj_set_height(card->reset[i], reset_font->line_height);
+        lv_obj_set_style_text_align(card->reset[i],
+                                    compact ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_set_y(card->reset[i], compact ? L.tri_reset_y : L.usage_reset_y + metrics_offset);
     }
 }
 
@@ -748,10 +797,13 @@ static void set_card_identity_visible(ProviderCard* card, bool visible) {
 
 static void apply_header_state(screen_t screen) {
     const bool usage_visible = screen != SCREEN_SPLASH;
+    const bool kimi_page = usage_page == usage_pages::Page::Kimi;
     const bool focused = usage_page == usage_pages::Page::Claude ||
-                         usage_page == usage_pages::Page::Codex;
-    const bool show_clawd = usage_visible && usage_page != usage_pages::Page::Codex;
-    const bool show_codex = usage_visible && usage_page != usage_pages::Page::Claude;
+                         usage_page == usage_pages::Page::Codex || kimi_page;
+    const bool show_clawd = usage_visible && !kimi_page &&
+                            usage_page != usage_pages::Page::Codex;
+    const bool show_codex = usage_visible && !kimi_page &&
+                            usage_page != usage_pages::Page::Claude;
     const int16_t battery_h = L.small_icons ? ICON_BATTERY_SMALL_H : ICON_BATTERY_H;
 
     splash_mascot_set_visible(show_clawd);
@@ -792,6 +844,7 @@ static void apply_header_state(screen_t screen) {
         lbl_title,
         usage_page == usage_pages::Page::Claude ? COL_ACCENT
         : usage_page == usage_pages::Page::Codex ? COL_CODEX
+        : kimi_page                                ? COL_KIMI
                                                   : COL_TEXT,
         0);
     lv_obj_set_style_text_color(lbl_anim, COL_DIM, 0);
@@ -799,8 +852,9 @@ static void apply_header_state(screen_t screen) {
 
 static void apply_page_indicator(usage_pages::Availability available) {
     const int active = usage_page == usage_pages::Page::Claude ? 1
-                     : usage_page == usage_pages::Page::Codex ? 2 : 0;
-    const bool visible[3] = {true, available.claude, available.codex};
+                     : usage_page == usage_pages::Page::Codex ? 2
+                     : usage_page == usage_pages::Page::Kimi ? 3 : 0;
+    const bool visible[4] = {true, available.claude, available.codex, available.kimi};
     const int16_t dot = L.small_icons ? 4 : 6;
     const int16_t gap = L.small_icons ? 7 : 10;
     const int16_t bottom_offset =
@@ -815,7 +869,7 @@ static void apply_page_indicator(usage_pages::Availability available) {
     lv_obj_align(page_indicator, LV_ALIGN_BOTTOM_MID, 0, bottom_offset);
 
     int visible_index = 0;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         if (visible[i]) {
             lv_obj_clear_flag(page_dots[i], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_x(page_dots[i], visible_index++ * (dot + gap));
@@ -823,7 +877,7 @@ static void apply_page_indicator(usage_pages::Availability available) {
             lv_obj_add_flag(page_dots[i], LV_OBJ_FLAG_HIDDEN);
         }
         const lv_color_t color = i == active
-            ? (i == 1 ? COL_ACCENT : i == 2 ? COL_CODEX : COL_TEXT)
+            ? (i == 1 ? COL_ACCENT : i == 2 ? COL_CODEX : i == 3 ? COL_KIMI : COL_TEXT)
             : COL_DIM;
         lv_obj_set_style_bg_color(page_dots[i], color, 0);
         lv_obj_set_style_bg_opa(page_dots[i], i == active ? LV_OPA_COVER : LV_OPA_50, 0);
@@ -831,9 +885,11 @@ static void apply_page_indicator(usage_pages::Availability available) {
 }
 
 static void apply_usage_page_layout(void) {
-    usage_page = usage_pages::normalize(usage_page, provider_availability());
+    const usage_pages::Availability available = provider_availability();
+    usage_page = usage_pages::normalize(usage_page, available);
     const usage_pages::CardLayout page_layout =
-        usage_pages::layout(usage_page, L.usage_card_h, L.usage_card_gap);
+        usage_pages::layout(usage_page, L.usage_card_h, L.usage_card_gap, available);
+    compact_cards = page_layout.compact;
     int16_t metrics_offset = 0;
     if (page_layout.focused) {
         const int16_t metrics_span =
@@ -843,22 +899,32 @@ static void apply_usage_page_layout(void) {
     }
 
     const int16_t focused_y = (int16_t)(L.content_y + page_layout.card_y_offset);
+    // Unfocused cards stack from the top at the page's card height.
+    const int16_t pitch = (int16_t)(page_layout.card_height + L.usage_card_gap);
     position_provider_card(&claude_card,
                            usage_page == usage_pages::Page::Claude ? focused_y : L.content_y,
-                           page_layout.card_height, metrics_offset);
+                           page_layout.card_height, metrics_offset, page_layout.compact);
     position_provider_card(&codex_card,
                            usage_page == usage_pages::Page::Codex
                                ? focused_y
-                               : L.content_y + L.usage_card_h + L.usage_card_gap,
-                           page_layout.card_height, metrics_offset);
+                               : (int16_t)(L.content_y + pitch),
+                           page_layout.card_height, metrics_offset, page_layout.compact);
+    position_provider_card(&kimi_card,
+                           usage_page == usage_pages::Page::Kimi
+                               ? focused_y
+                               : (int16_t)(L.content_y + 2 * pitch),
+                           page_layout.card_height, metrics_offset, page_layout.compact);
 
     if (page_layout.claude_visible) lv_obj_clear_flag(claude_card.panel, LV_OBJ_FLAG_HIDDEN);
     else                            lv_obj_add_flag(claude_card.panel, LV_OBJ_FLAG_HIDDEN);
     if (page_layout.codex_visible) lv_obj_clear_flag(codex_card.panel, LV_OBJ_FLAG_HIDDEN);
     else                           lv_obj_add_flag(codex_card.panel, LV_OBJ_FLAG_HIDDEN);
+    if (page_layout.kimi_visible) lv_obj_clear_flag(kimi_card.panel, LV_OBJ_FLAG_HIDDEN);
+    else                          lv_obj_add_flag(kimi_card.panel, LV_OBJ_FLAG_HIDDEN);
     set_card_identity_visible(&claude_card, usage_page == usage_pages::Page::All);
     set_card_identity_visible(&codex_card, usage_page == usage_pages::Page::All);
-    apply_page_indicator(provider_availability());
+    set_card_identity_visible(&kimi_card, usage_page == usage_pages::Page::All);
+    apply_page_indicator(available);
     set_usage_title();
     apply_header_state(current_screen);
 }
@@ -876,7 +942,15 @@ static void render_window(ProviderCard* card, int index, float used_pct,
     lv_label_set_text_fmt(card->pct[index], "%d%%", p);
     lv_bar_set_value(card->bar[index], p, LV_ANIM_ON);
     lv_obj_set_style_bg_color(card->bar[index], pct_color(used_pct), LV_PART_INDICATOR);
-    format_reset_time(reset_mins, buf, sizeof(buf));
+    if (compact_cards) {
+        // "5H 2h 13m": the period label is hidden in compact rows.
+        char t[32];
+        format_reset_time(reset_mins, t, sizeof(t));
+        const char* when = strncmp(t, "in ", 3) == 0 ? t + 3 : t;
+        snprintf(buf, sizeof(buf), "%s %s", lv_label_get_text(card->period[index]), when);
+    } else {
+        format_reset_time(reset_mins, buf, sizeof(buf));
+    }
     lv_label_set_text(card->reset[index], buf);
 }
 
@@ -940,17 +1014,31 @@ static void render_codex(void) {
                   last_usage.codex_weekly_reset_mins, "no window");
 }
 
+static void render_kimi(void) {
+    lv_label_set_text(kimi_card.period[0], "5H");
+    lv_label_set_text(kimi_card.period[1], last_usage.kimi_weekly_is_monthly ? "MO" : "7D");
+    if (!last_usage.kimi_valid || !last_usage.kimi_ok) {
+        render_unavailable(&kimi_card, "no data");
+        return;
+    }
+    render_window(&kimi_card, 0, last_usage.kimi_session_pct,
+                  last_usage.kimi_session_reset_mins, "no window");
+    render_window(&kimi_card, 1, last_usage.kimi_weekly_pct,
+                  last_usage.kimi_weekly_reset_mins, "no window");
+}
+
 static void apply_usage_view(void) {
     if (!last_usage.valid) return;
     apply_usage_page_layout();
     render_claude();
     render_codex();
+    render_kimi();
 }
 
 void ui_update(const UsageData* data) {
     if (!data->valid) return;
-    data_ok = data->ok || data->codex_ok;
-    if (!data->ok && !data->codex_ok) return;
+    data_ok = data->ok || data->codex_ok || data->kimi_ok;
+    if (!data_ok) return;
     last_data_ms = lv_tick_get();
     data_received = true;
     last_usage = *data;
@@ -1087,7 +1175,8 @@ static void global_click_cb(lv_event_t* e) {
         return;
     }
     usage_page = next;
-    apply_usage_page_layout();
+    // Re-render too: reset labels are worded differently in compact rows.
+    apply_usage_view();
 }
 
 void ui_show_screen(screen_t screen) {

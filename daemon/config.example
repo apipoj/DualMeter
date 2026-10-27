@@ -30,3 +30,11 @@ chime = off
 #   12   = show the clock, forced 12-hour  (e.g. 6:28 PM)
 #   24   = show the clock, forced 24-hour  (e.g. 18:28)
 clock = off
+
+# Kimi Code usage (third card on the dashboard). Picked up automatically when
+# the Kimi Code CLI is signed in (~/.kimi-code/credentials/kimi-code.json);
+# otherwise paste an API key from the Kimi Code console here, or export
+# KIMI_CODE_API_KEY. Leave both unset to keep the two-provider layout.
+# kimi_api_key = sk-...
+# kimi_base_url = https://api.kimi.com
+

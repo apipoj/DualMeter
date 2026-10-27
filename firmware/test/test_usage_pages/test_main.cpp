@@ -44,7 +44,7 @@ static void should_normalize_a_page_when_its_provider_disappears() {
 
 static void should_compose_a_focused_card_inside_the_two_card_envelope() {
     constexpr auto all = usage_pages::layout(Page::All, 144, 12);
-    CHECK(all.claude_visible && all.codex_visible);
+    CHECK(all.claude_visible && all.codex_visible && !all.kimi_visible);
     CHECK(all.card_height == 144);
     CHECK(all.card_y_offset == 0);
     CHECK(!all.focused);
@@ -62,7 +62,45 @@ static void should_compose_a_focused_card_inside_the_two_card_envelope() {
     CHECK(codex_small.focused);
 }
 
+static void should_cycle_through_kimi_when_it_is_available() {
+    constexpr Availability all3{true, true, true};
+    CHECK(usage_pages::next(Page::All, all3) == Page::Claude);
+    CHECK(usage_pages::next(Page::Claude, all3) == Page::Codex);
+    CHECK(usage_pages::next(Page::Codex, all3) == Page::Kimi);
+    CHECK(usage_pages::next(Page::Kimi, all3) == Page::Splash);
+
+    constexpr Availability kimi_only{false, false, true};
+    CHECK(usage_pages::next(Page::All, kimi_only) == Page::Kimi);
+    CHECK(usage_pages::next(Page::Kimi, kimi_only) == Page::Splash);
+
+    constexpr Availability claude_kimi{true, false, true};
+    CHECK(usage_pages::next(Page::Claude, claude_kimi) == Page::Kimi);
+
+    CHECK(usage_pages::normalize(Page::Kimi, {true, true}) == Page::All);
+    CHECK(usage_pages::normalize(Page::Kimi, {true, true, true}) == Page::Kimi);
+}
+
+static void should_fit_three_compact_cards_in_the_two_card_envelope() {
+    constexpr auto two = usage_pages::layout(Page::All, 144, 12, {true, true, false});
+    CHECK(!two.kimi_visible && !two.compact);
+    CHECK(two.card_height == 144);
+
+    constexpr auto three = usage_pages::layout(Page::All, 144, 12, {true, true, true});
+    CHECK(three.claude_visible && three.codex_visible && three.kimi_visible);
+    CHECK(three.compact && !three.focused);
+    CHECK(three.card_height == 92);
+    // 3 cards + 2 gaps never overflow the 2-card envelope (2*144 + 12).
+    CHECK(3 * three.card_height + 2 * 12 <= 2 * 144 + 12);
+
+    constexpr auto kimi = usage_pages::layout(Page::Kimi, 144, 12, {true, true, true});
+    CHECK(!kimi.claude_visible && !kimi.codex_visible && kimi.kimi_visible);
+    CHECK(kimi.focused && !kimi.compact);
+    CHECK(kimi.card_height == 192);
+}
+
 int main() {
+    should_cycle_through_kimi_when_it_is_available();
+    should_fit_three_compact_cards_in_the_two_card_envelope();
     should_cycle_all_providers_then_splash();
     should_skip_unavailable_provider_pages();
     should_normalize_a_page_when_its_provider_disappears();
