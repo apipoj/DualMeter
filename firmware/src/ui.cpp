@@ -534,7 +534,8 @@ static void build_pair_group(lv_obj_t* parent) {
     lv_obj_align(l1, LV_ALIGN_TOP_MID, 0, L.pair_y1);
 
     lv_obj_t* l2 = lv_label_create(pair_group);
-    lv_label_set_text(l2, "hold the power button");
+    const char* pwr = board_caps().pwr_button_label;
+    lv_label_set_text_fmt(l2, "hold the %s", pwr ? pwr : "power button");
     lv_obj_set_style_text_font(l2, L.bt_device_font, 0);
     lv_obj_set_style_text_color(l2, COL_DIM, 0);
     lv_obj_align(l2, LV_ALIGN_TOP_MID, 0, L.pair_y2);
