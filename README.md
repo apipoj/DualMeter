@@ -14,7 +14,13 @@ Firmware is based on [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter)
 
 ## Hardware
 
-Waveshare ESP32-C6-Touch-AMOLED-2.16 only (no PSRAM). Mount it with the three physical buttons along the top edge; firmware rotates the display and touch mapping for that orientation. Other boards are still in `firmware/platformio.ini` from upstream but are untested in this fork.
+Waveshare ESP32-C6-Touch-AMOLED-2.16 (no PSRAM). Mount it with the three physical buttons along the top edge; firmware rotates the display and touch mapping for that orientation. Other boards are still in `firmware/platformio.ini` from upstream but are untested in this fork.
+
+Also tested: **Waveshare ESP32-C6-Touch-LCD-1.54** (240×240 ST7789, CST816 touch),
+build env `waveshare_lcd_154_c6`. Its three top buttons are unlabeled: BOOT is
+GPIO9, the user key (GPIO18) takes the PWR role (tap = brightness, hold ~3s and
+release = pair), and the real PWR key drives a power-switch IC — don't hold it
+to pair, it powers the board off.
 
 ## macOS setup
 
@@ -58,6 +64,18 @@ The host writes one JSON object over BLE:
 ```
 
 `s/sr/w/wr` are Claude used-percent and reset minutes. `xs/xsr/xw/xwr` are Codex.
+`ks/ksr/kw/kwr/kok` are Kimi Code, sent only when Kimi is configured.
+
+## Kimi (optional third provider)
+
+When the daemon finds Kimi credentials, the dashboard shows three compact
+cards and the tap cycle gains a Kimi page. Credentials, first match wins:
+
+- `kimi_api_key = sk-...` in `~/.config/claude-usage-monitor/config`, or `KIMI_CODE_API_KEY`
+- the Kimi Code CLI's login (`~/.kimi-code/credentials/kimi-code.json`), used while unexpired
+
+Usage comes from `GET https://api.kimi.com/coding/v1/usages` (5h and 7d pools);
+override the host with `kimi_base_url`. Without credentials nothing changes.
 
 ## License and credit
 

@@ -9,6 +9,7 @@
 #define THEME_DIM      lv_color_hex(0xb0aea5)   // secondary text
 #define THEME_ACCENT   lv_color_hex(0xd97757)   // brand terra-cotta
 #define THEME_CODEX    lv_color_hex(0x7aa89a)   // restrained teal for Codex
+#define THEME_KIMI     lv_color_hex(0x7f9fd4)   // restrained blue for Kimi
 #define THEME_GREEN    lv_color_hex(0x788c5d)
 #define THEME_AMBER    lv_color_hex(0xd97757)
 #define THEME_RED      lv_color_hex(0xc0392b)

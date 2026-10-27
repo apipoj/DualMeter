@@ -25,6 +25,7 @@ from bleak import BleakClient
 from bleak.exc import BleakError
 
 from codex_limits import poll_codex_payload
+from kimi_limits import poll_kimi_payload
 
 DEVICE_NAME = "DualMeter"
 SERVICE_UUID = "4c41555a-4465-7669-6365-000000000001"
@@ -634,8 +635,18 @@ class Session:
     async def write_payload(self, payload: dict) -> bool:
         data = json.dumps(payload, separators=(",", ":")).encode()
         log(f"Sending: {data.decode()}")
+        # A three-provider payload can outgrow one write-without-response
+        # (~182 bytes on macOS); a write request lets CoreBluetooth do a long
+        # write, which NimBLE reassembles before onWrite.
+        response = False
         try:
-            await self.client.write_gatt_char(RX_CHAR_UUID, data, response=False)
+            char = self.client.services.get_characteristic(RX_CHAR_UUID)
+            if char is not None and len(data) > char.max_write_without_response_size:
+                response = True
+        except Exception:
+            response = len(data) > 180
+        try:
+            await self.client.write_gatt_char(RX_CHAR_UUID, data, response=response)
             return True
         except BleakError as e:
             log(f"Write failed: {e}")
@@ -785,18 +796,27 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
                 except Exception as e:
                     log(f"Codex poll failed: {e}")
                     codex = None
+                try:
+                    kimi = await poll_kimi_payload(CONFIG_FILE)
+                except Exception as e:
+                    log(f"Kimi poll failed: {e}")
+                    kimi = None
                 if payload is None:
                     payload = {"ok": False, "s": 0, "sr": -1, "w": 0, "wr": -1, "st": "unknown"}
                 if codex:
                     payload.update(codex)
                 else:
                     payload["xok"] = False
-                if payload.get("ok") or payload.get("xok"):
+                # Kimi is opt-in: omit its fields entirely when unconfigured so
+                # the firmware keeps the two-card layout.
+                if kimi:
+                    payload.update(kimi)
+                if payload.get("ok") or payload.get("xok") or payload.get("kok"):
                     if await session.write_payload(payload):
                         last_poll = time.time()
                         used_successfully = True
                 elif dead:
-                    log("No usable Claude or Codex token; signalling no-data")
+                    log("No usable Claude, Codex or Kimi token; signalling no-data")
                     if await session.write_payload({"ok": False, "xok": False}):
                         last_poll = time.time()
                 else:

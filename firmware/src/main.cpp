@@ -126,6 +126,14 @@ static bool parse_json(const char* json, UsageData* out) {
     out->codex_weekly_pct = doc["xw"].isNull() ? -1.0f : (doc["xw"] | 0.0f);
     out->codex_weekly_reset_mins = doc["xwr"] | -1;
     out->codex_ok = doc["xok"] | out->codex_valid;
+
+    out->kimi_valid = !doc["ks"].isNull() || !doc["kw"].isNull();
+    out->kimi_session_pct = doc["ks"].isNull() ? -1.0f : (doc["ks"] | 0.0f);
+    out->kimi_session_reset_mins = doc["ksr"] | -1;
+    out->kimi_weekly_pct = doc["kw"].isNull() ? -1.0f : (doc["kw"] | 0.0f);
+    out->kimi_weekly_reset_mins = doc["kwr"] | -1;
+    out->kimi_ok = doc["kok"] | out->kimi_valid;
+    out->kimi_weekly_is_monthly = doc["kwm"] | false;
     return true;
 }
 
@@ -184,7 +192,8 @@ static void check_serial_cmd() {
                 ble_clear_bonds();
             } else if (strcmp(cmd_buf, "demo") == 0) {
                 parse_json("{\"s\":42,\"sr\":73,\"w\":18,\"wr\":3200,\"st\":\"allowed\",\"ok\":true,"
-                           "\"xs\":27,\"xsr\":110,\"xw\":41,\"xwr\":5400,\"xok\":true}", &usage);
+                           "\"xs\":27,\"xsr\":110,\"xw\":41,\"xwr\":5400,\"xok\":true,"
+                           "\"ks\":63,\"ksr\":95,\"kw\":22,\"kwr\":7100,\"kok\":true}", &usage);
                 ui_update(&usage);
                 Serial.println("demo payload applied");
             } else if (cmd_buf[0] == '{') {
